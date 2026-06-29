@@ -9,14 +9,14 @@ app = Flask(__name__)
 
 # ================= GEMINI =================
 client = genai.Client(
-    api_key=os.environ["AIzaSyD2wHaPjEhxD7ksWdy5vOlLq8ibuFlMyQg"]
+    api_key=os.environ["GEMINI_API_KEY"]
 )
 
 # ================= DEEPGRAM =================
-DEEPGRAM_API_KEY = os.environ["da64902116d270697c6a8a99c27c7aee2071f62e"]
+DEEPGRAM_API_KEY = os.environ["DEEPGRAM_API_KEY"]
 
 def speech_to_text(audio_file):
-    url = "https://api.deepgram.com/v1/listen"
+    url = "https://api.deepgram.com/v1/listen?model=nova-2&language=hi"
 
     headers = {
         "Authorization": f"Token {DEEPGRAM_API_KEY}",
@@ -26,25 +26,26 @@ def speech_to_text(audio_file):
     with open(audio_file, "rb") as f:
         response = requests.post(url, headers=headers, data=f)
 
-    data = response.json()
-
     try:
-        return data["results"]["channels"][0]["alternatives"][0]["transcript"]
+        return response.json()["results"]["channels"][0]["alternatives"][0]["transcript"]
     except:
-        return "I couldn't understand that"
+        return "I couldn't understand"
 
 # ================= GEMINI =================
 def ask_gemini(text):
-    res = client.models.generate_content(
+    response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=text
     )
-    return res.text
+    return response.text
 
 # ================= TTS =================
 async def tts(text, file):
-    t = edge_tts.Communicate(text, "en-IN-NeerjaNeural")
-    await t.save(file)
+    communicate = edge_tts.Communicate(
+        text,
+        "en-IN-NeerjaNeural"
+    )
+    await communicate.save(file)
 
 def speak(text, file):
     asyncio.run(tts(text, file))
@@ -60,16 +61,20 @@ def process_audio():
     with open("input.wav", "wb") as f:
         f.write(request.data)
 
+    # STT
     text = speech_to_text("input.wav")
     print("User:", text)
 
+    # Gemini
     reply = ask_gemini(text)
-    print("Gemini:", reply)
+    print("Bot:", reply)
 
+    # TTS
     speak(reply, "output.mp3")
 
     return send_file("output.mp3", mimetype="audio/mpeg")
 
+# ================= RUN =================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
