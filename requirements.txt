@@ -1,4 +1,5 @@
-flask
+Flask==3.0.3
 google-genai
 edge-tts
 requests
+gunicorn
