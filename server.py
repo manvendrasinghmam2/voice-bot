@@ -1,45 +1,64 @@
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, jsonify
 from google import genai
 import edge_tts
 import asyncio
+import os
 
 app = Flask(__name__)
 
-client = genai.Client(api_key="AIzaSyD2wHaPjEhxD7ksWdy5vOlLq8ibuFlMyQg")
-model = whisper.load_model("base")
+# Environment Variable se API key lo
+client = genai.Client(
+    api_key=os.environ["AIzaSyD2wHaPjEhxD7ksWdy5vOlLq8ibuFlMyQg"]
+)
 
-def stt(file):
-    return model.transcribe(file)["text"]
+# ---------- Speech To Text ----------
+def speech_to_text(audio_file):
+    """
+    Yahan baad me Deepgram / Google STT /
+    AssemblyAI API call aayegi.
+    """
+    return "Hello"
 
-def gemini(text):
-    res = client.models.generate_content(
+# ---------- Gemini ----------
+def ask_gemini(text):
+    response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=text
     )
-    return res.text
+    return response.text
 
-async def tts(text, out):
-    t = edge_tts.Communicate(text, "en-IN-NeerjaNeural")
-    await t.save(out)
+# ---------- Text To Speech ----------
+async def create_voice(text, filename):
+    communicate = edge_tts.Communicate(
+        text,
+        "en-IN-NeerjaNeural"
+    )
+    await communicate.save(filename)
 
-def speak(text, out):
-    asyncio.run(tts(text, out))
-
-@app.route("/process_audio", methods=["POST"])
-def process():
-    with open("in.wav", "wb") as f:
-        f.write(request.data)
-
-    text = stt("in.wav")
-    reply = gemini(text)
-
-    speak(reply, "out.mp3")
-
-    return send_file("out.mp3", mimetype="audio/mpeg")
-
+# ---------- API ----------
 @app.route("/")
 def home():
-    return {"status": "running"}
+    return jsonify({
+        "status": "running"
+    })
+
+@app.route("/process_audio", methods=["POST"])
+def process_audio():
+
+    with open("input.wav", "wb") as f:
+        f.write(request.data)
+
+    user_text = speech_to_text("input.wav")
+
+    reply = ask_gemini(user_text)
+
+    asyncio.run(create_voice(reply, "output.mp3"))
+
+    return send_file(
+        "output.mp3",
+        mimetype="audio/mpeg"
+    )
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
