@@ -1,80 +1,140 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, jsonify, send_file
 from google import genai
 import edge_tts
 import asyncio
-import os
 import requests
+import uuid
+import os
 
 app = Flask(__name__)
 
-# ================= GEMINI =================
-client = genai.Client(
-    api_key=os.environ["GEMINI_API_KEY"]
-)
-
-# ================= DEEPGRAM =================
+# =============================
+# CONFIG
+# =============================
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 DEEPGRAM_API_KEY = os.environ["DEEPGRAM_API_KEY"]
 
-def speech_to_text(audio_file):
-    url = "https://api.deepgram.com/v1/listen?model=nova-2&language=hi"
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+AUDIO_FOLDER = "audio"
+
+if not os.path.exists(AUDIO_FOLDER):
+    os.makedirs(AUDIO_FOLDER)
+
+
+# =============================
+# SPEECH TO TEXT
+# =============================
+def speech_to_text(filename):
+
+    url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true"
 
     headers = {
         "Authorization": f"Token {DEEPGRAM_API_KEY}",
         "Content-Type": "audio/wav"
     }
 
-    with open(audio_file, "rb") as f:
-        response = requests.post(url, headers=headers, data=f)
+    with open(filename, "rb") as f:
+        r = requests.post(url, headers=headers, data=f)
+
+    data = r.json()
 
     try:
-        return response.json()["results"]["channels"][0]["alternatives"][0]["transcript"]
+        return data["results"]["channels"][0]["alternatives"][0]["transcript"]
     except:
-        return "I couldn't understand"
+        return ""
 
-# ================= GEMINI =================
+
+# =============================
+# GEMINI
+# =============================
 def ask_gemini(text):
+
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=text
     )
+
     return response.text
 
-# ================= TTS =================
-async def tts(text, file):
+
+# =============================
+# TEXT TO SPEECH
+# =============================
+async def tts(text, output):
+
     communicate = edge_tts.Communicate(
         text,
         "en-IN-NeerjaNeural"
     )
-    await communicate.save(file)
 
-def speak(text, file):
-    asyncio.run(tts(text, file))
+    await communicate.save(output)
 
-# ================= ROUTES =================
+
+# =============================
+# HOME
+# =============================
 @app.route("/")
 def home():
-    return jsonify({"status": "running"})
+    return jsonify({
+        "status": "running"
+    })
 
+
+# =============================
+# PROCESS AUDIO
+# =============================
 @app.route("/process_audio", methods=["POST"])
 def process_audio():
 
-    with open("input.wav", "wb") as f:
+    uid = str(uuid.uuid4())
+
+    wav_file = os.path.join(AUDIO_FOLDER, uid + ".wav")
+    mp3_file = os.path.join(AUDIO_FOLDER, uid + ".mp3")
+
+    with open(wav_file, "wb") as f:
         f.write(request.data)
 
-    # STT
-    text = speech_to_text("input.wav")
-    print("User:", text)
+    text = speech_to_text(wav_file)
 
-    # Gemini
+    if text == "":
+        return jsonify({
+            "error": "Speech not detected"
+        }), 400
+
     reply = ask_gemini(text)
-    print("Bot:", reply)
 
-    # TTS
-    speak(reply, "output.mp3")
+    asyncio.run(tts(reply, mp3_file))
 
-    return send_file("output.mp3", mimetype="audio/mpeg")
+    return jsonify({
+        "message": reply,
+        "file_id": uid,
+        "stream_url": "/audio/" + uid
+    })
 
-# ================= RUN =================
+
+# =============================
+# AUDIO DOWNLOAD
+# =============================
+@app.route("/audio/<file_id>")
+def audio(file_id):
+
+    file = os.path.join(AUDIO_FOLDER, file_id + ".mp3")
+
+    if not os.path.exists(file):
+        return "Not Found", 404
+
+    return send_file(file, mimetype="audio/mpeg")
+
+
+# =============================
+# MAIN
+# =============================
 if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
