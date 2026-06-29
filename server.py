@@ -1,6 +1,5 @@
 from flask import Flask, request, send_file
 from google import genai
-import whisper
 import edge_tts
 import asyncio
 
