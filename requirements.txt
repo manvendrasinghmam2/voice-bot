@@ -1,6 +1,4 @@
 flask
 google-genai
 edge-tts
-openai-whisper
-torch
-ffmpeg-python
+requests
